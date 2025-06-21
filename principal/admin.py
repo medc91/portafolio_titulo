@@ -9,6 +9,8 @@ from .models import (
     Clase,
     HoraClase,
     ReservaClase,
+    MaterialClase,
+    EvaluacionClase,
 )
 
 # Registra todos tus modelos aquí
@@ -21,3 +23,5 @@ admin.site.register(ProfesorMateria)
 admin.site.register(Clase)
 admin.site.register(HoraClase)
 admin.site.register(ReservaClase)
+admin.site.register(MaterialClase)
+admin.site.register(EvaluacionClase)

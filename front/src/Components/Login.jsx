@@ -1,89 +1,116 @@
 import React, { useState } from "react";
 import axios from "axios";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
+import logo from "../assets/images/logo.png"; // Asegúrate de que esta ruta es correcta
 
 const Login = () => {
-  const [formData, setFormData] = useState({
-    email: "",
-    password: "",
-  });
-
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [mostrarPassword, setMostrarPassword] = useState(false);
-  const [mensaje, setMensaje] = useState("");
+  const [error, setError] = useState("");
   const navigate = useNavigate();
-
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setError("");
 
     try {
-      const response = await axios.post(
-        "http://localhost:8000/api/login/",
-        formData
-      );
+      const res = await axios.post("http://localhost:8000/api/login/", {
+        email,
+        password,
+      });
 
-      const { tipo_usuario } = response.data;
+      const { tipo_usuario, id } = res.data;
 
-      if (tipo_usuario === "alumno") {
-        navigate("/inicio-alumno");
-      } else if (tipo_usuario === "profesor") {
-        navigate("/inicio-profesor");
-      } else {
-        setMensaje("Tipo de usuario no reconocido.");
+      if (window.OneSignalDeferred) {
+        window.OneSignalDeferred.push(async function (OneSignal) {
+          const externalId =
+            tipo_usuario === "profesor" ? `profesor_${id}` : `alumno_${id}`;
+          try {
+            await OneSignal.setExternalUserId(externalId);
+            console.log("OneSignal ID asignado:", externalId);
+          } catch (err) {
+            console.warn("Error asignando externalUserId en OneSignal:", err);
+          }
+        });
       }
-    } catch (error) {
-      setMensaje(
-        "Error al iniciar sesión: " + JSON.stringify(error.response?.data || {})
-      );
+
+      if (tipo_usuario === "profesor") {
+        navigate(`/profesor/${id}`);
+      } else if (tipo_usuario === "alumno") {
+        navigate(`/alumno/${id}`);
+      } else {
+        setError("Tipo de usuario no reconocido.");
+      }
+    } catch (err) {
+      setError("Credenciales incorrectas o error del servidor.");
     }
   };
 
   return (
-    <div className="max-w-md mx-auto mt-10 p-6 border rounded-xl shadow-md">
-      <h2 className="text-xl font-semibold mb-4 text-center">Iniciar Sesión</h2>
-      {mensaje && (
-        <p className="text-red-600 text-center mb-4 text-sm">{mensaje}</p>
-      )}
-      <form onSubmit={handleSubmit} className="space-y-4">
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 font-sans">
+      <form
+        onSubmit={handleSubmit}
+        className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md border border-gray-200"
+      >
+        {/* Logo centrado */}
+        <div className="flex justify-center mb-4">
+          <img
+            src={logo}
+            alt="Aula Global"
+            className="h-38 max-w-[200px] w-full object-contain"
+          />
+        </div>
+
+        <h2 className="text-3xl font-bold mb-6 text-center text-emerald-600">
+          Iniciar Sesión
+        </h2>
+
+        {error && (
+          <p className="text-red-500 mb-4 text-center text-sm">{error}</p>
+        )}
+
         <input
           type="email"
-          name="email"
-          placeholder="Correo electrónico"
-          onChange={handleChange}
-          className="w-full p-2 border rounded text-black placeholder-black"
-          required
+          placeholder="Correo"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-300 placeholder-gray-500"
         />
+
         <input
           type={mostrarPassword ? "text" : "password"}
-          name="password"
           placeholder="Contraseña"
-          onChange={handleChange}
-          className="w-full p-2 border rounded text-black placeholder-black"
-          required
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          className="w-full p-3 mb-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-300 placeholder-gray-500"
         />
-        <div className="flex items-center space-x-2">
+
+        <div className="flex items-center mb-4 text-sm">
           <input
             type="checkbox"
+            checked={mostrarPassword}
             onChange={() => setMostrarPassword(!mostrarPassword)}
+            className="mr-2"
           />
-          <label className="text-sm text-black">Mostrar contraseña</label>
+          <label>Mostrar contraseña</label>
         </div>
+
         <button
           type="submit"
-          className="w-full bg-pink-300 text-white font-semibold py-2 rounded shadow-md hover:bg-pink-400 transition"
+          className="bg-emerald-500 hover:bg-emerald-600 text-white font-semibold w-full py-2 rounded-xl shadow-md transition"
         >
-          Iniciar sesión
+          Iniciar Sesión
         </button>
-        <p className="text-sm text-center mt-4">
-          ¿Olvidaste tu contraseña?{" "}
-          <a href="/recupera-contraseña" className="text-pink-500 underline">
-            Recuperarla
-          </a>
-        </p>
+
+        <div className="text-center mt-4">
+          <Link
+            to="/verificar-codigo"
+            className="text-sm text-emerald-500 hover:underline"
+          >
+            ¿Olvidaste tu contraseña?
+          </Link>
+        </div>
       </form>
     </div>
   );

@@ -204,6 +204,7 @@ class ReservaClase(models.Model):
     pago = models.ForeignKey(Pago, on_delete=models.CASCADE)
     alumno = models.ForeignKey(Alumno, on_delete=models.CASCADE)
     hora_clase = models.ForeignKey(HoraClase, on_delete=models.CASCADE)
+    mensaje_alumno = models.TextField(blank=True, null=True)
 
     class Meta:
         unique_together = ("hora_clase", "alumno")
@@ -215,3 +216,33 @@ class ReservaClase(models.Model):
 
     def __str__(self):
         return f"{self.alumno} - {self.hora_clase}"
+
+
+class MaterialClase(models.Model):
+    reserva = models.ForeignKey(
+        ReservaClase,
+        on_delete=models.CASCADE,
+        related_name="materiales",  # 👈 necesario para el serializer
+    )
+    archivo = models.FileField(upload_to="materiales/", null=True, blank=True)
+    link = models.URLField(null=True, blank=True)
+    descripcion = models.TextField(blank=True)
+    fecha_subida = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Material para {self.reserva}"
+
+
+class EvaluacionClase(models.Model):
+    reserva = models.ForeignKey("ReservaClase", on_delete=models.CASCADE)
+    evaluador = models.CharField(
+        max_length=10,
+        choices=[("alumno", "Alumno"), ("profesor", "Profesor")],
+        default="alumno",
+    )
+    puntuacion = models.IntegerField()
+    comentario = models.TextField(blank=True)
+    fecha = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("reserva", "evaluador")  # ✅ Impide duplicados por evaluador

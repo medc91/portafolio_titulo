@@ -6,28 +6,51 @@ const BASE_URL = "http://localhost:8000";
 
 const PagosProfesor = ({ profesorId }) => {
   const [pagos, setPagos] = useState([]);
-  const [totalMes, setTotalMes] = useState(0);
+  const [totalDisponible, setTotalDisponible] = useState(0);
+  const [historialCobros, setHistorialCobros] = useState([]);
   const [cargando, setCargando] = useState(true);
+  const [cobrando, setCobrando] = useState(false); // Nuevo estado para bloqueo de botón
+
+  const fetchPagos = async () => {
+    try {
+      const res = await axios.get(
+        `${BASE_URL}/api/profesor/${profesorId}/pagos/`
+      );
+      setPagos(res.data.pagos || []);
+      setTotalDisponible(res.data.total_disponible || 0);
+      setHistorialCobros(res.data.historial_cobros || []);
+    } catch (error) {
+      console.error("Error al obtener pagos:", error);
+    } finally {
+      setCargando(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchPagos = async () => {
-      try {
-        const res = await axios.get(
-          `${BASE_URL}/api/profesor/${profesorId}/pagos/`
-        );
-        setPagos(res.data.pagos);
-        setTotalMes(res.data.total_mes);
-      } catch (error) {
-        console.error("Error al obtener pagos:", error);
-      } finally {
-        setCargando(false);
-      }
-    };
-
     if (profesorId) {
       fetchPagos();
     }
   }, [profesorId]);
+
+  const realizarCobro = async () => {
+    setCobrando(true);
+    try {
+      const res = await axios.post(
+        `${BASE_URL}/api/profesor/${profesorId}/cobrar/`
+      );
+      alert(
+        `✅ ${res.data.mensaje}\nMonto retirado: $${res.data.monto_retirado}`
+      );
+      await fetchPagos(); // Refrescar interfaz tras cobro
+    } catch (error) {
+      alert(
+        error.response?.data?.error ||
+          "❌ Error al realizar el cobro. Intenta nuevamente."
+      );
+    } finally {
+      setCobrando(false);
+    }
+  };
 
   return (
     <div>
@@ -74,24 +97,43 @@ const PagosProfesor = ({ profesorId }) => {
               </div>
             </div>
 
-            {/* Resumen del mes */}
+            {/* Resumen de cobros */}
             <div className="flex flex-col items-center justify-center border border-emerald-300 bg-green-50 p-6 rounded-lg shadow">
               <h3 className="text-xl font-bold text-emerald-700 mb-4">
-                💼 Resumen del Mes
+                💼 Resumen
               </h3>
               <p className="text-lg text-gray-700">
-                Total Ganado:{" "}
+                Total disponible para retiro:{" "}
                 <span className="font-semibold text-emerald-600">
-                  ${totalMes.toLocaleString()}
+                  ${totalDisponible.toLocaleString()}
                 </span>
               </p>
               <button
-                aria-label="Cobrar ganancias del mes"
-                className="mt-4 bg-emerald-500 text-white px-4 py-2 rounded hover:bg-emerald-400 transition"
-                onClick={() => alert("Funcionalidad de cobro en desarrollo")}
+                onClick={realizarCobro}
+                disabled={cobrando || totalDisponible <= 0}
+                className={`mt-4 px-4 py-2 rounded transition ${
+                  cobrando || totalDisponible <= 0
+                    ? "bg-gray-400 cursor-not-allowed"
+                    : "bg-emerald-500 text-white hover:bg-emerald-400"
+                }`}
               >
-                💸 Cobrar Monto del Mes
+                {cobrando ? "Procesando..." : "💸 Cobrar Total Disponible"}
               </button>
+
+              <h4 className="mt-6 font-semibold text-gray-700">
+                📜 Historial de Retiros
+              </h4>
+              <ul className="mt-2 list-disc ml-4 text-sm text-gray-600">
+                {historialCobros.length === 0 ? (
+                  <li>No hay cobros aún.</li>
+                ) : (
+                  historialCobros.map((cobro, idx) => (
+                    <li key={idx}>
+                      ${cobro.monto.toLocaleString()} — {cobro.fecha}
+                    </li>
+                  ))
+                )}
+              </ul>
             </div>
           </div>
         )}

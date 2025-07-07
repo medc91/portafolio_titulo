@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
-import dayjs from "dayjs";
+import dayjs from "../utils/timezone";
 import BotonUnirse from "./BotonUnirse";
 
 const BASE_URL = "http://localhost:8000";
@@ -60,11 +60,11 @@ const ClasesReservadas = ({ reservas, alumnoId }) => {
               <div className="text-sm text-gray-800 space-y-1">
                 <p>
                   🗓 <strong>Fecha:</strong>{" "}
-                  {dayjs(clase.inicio).local().format("DD/MM/YYYY")}
+                  {dayjs.tz(clase.inicio).local().format("DD/MM/YYYY")}
                 </p>
                 <p>
                   ⏰ <strong>Hora:</strong>{" "}
-                  {dayjs(clase.inicio).local().format("HH:mm")}
+                  {dayjs.tz(clase.inicio).local().format("HH:mm")}
                 </p>
                 <p>
                   📘 <strong>Materia:</strong> {clase.materia}

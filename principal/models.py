@@ -17,8 +17,14 @@ class Alumno(models.Model):
     dv = models.CharField(max_length=1)
     correo = models.EmailField(max_length=45, unique=True)
     password = models.CharField(max_length=128, verbose_name="Contraseña")
+    activo = models.BooleanField(
+        default=True, help_text="Indica si la cuenta está habilitada"
+    )
+    descripcion = models.TextField(blank=True, null=True)
+    foto = models.ImageField(upload_to="fotos_alumnos/", null=True, blank=True)
 
     class Meta:
+        db_table = "alumno"
         indexes = [
             models.Index(fields=["rut"], name="idx_rut"),
         ]
@@ -26,7 +32,8 @@ class Alumno(models.Model):
         verbose_name_plural = "Alumnos"
 
     def set_password(self, raw_password):
-        """Encripta y guarda la contraseña"""
+        from django.contrib.auth.hashers import make_password
+
         self.password = make_password(raw_password)
         self.save()
 
@@ -59,6 +66,9 @@ class Pago(models.Model):
     metodo_pago = models.CharField(max_length=13, choices=METODO_PAGO)
     estado = models.CharField(max_length=10, choices=ESTADO_PAGO, default="PENDIENTE")
 
+    class Meta:
+        db_table = "pago"
+
     def __str__(self):
         return f"Pago {self.id} - {self.monto}"
 
@@ -66,12 +76,18 @@ class Pago(models.Model):
 class Nivel(models.Model):
     nombre_nivel = models.CharField(max_length=45, unique=True)
 
+    class Meta:
+        db_table = "nivel"
+
     def __str__(self):
         return self.nombre_nivel
 
 
 class Materia(models.Model):
     nombre_materia = models.CharField(max_length=70, unique=True)
+
+    class Meta:
+        db_table = "materia"
 
     def __str__(self):
         return self.nombre_materia
@@ -106,8 +122,17 @@ class Profesor(models.Model):
         blank=True,
         verbose_name="Título PDF",
     )
+    validado = models.BooleanField(
+        default=False, help_text="Indica si el título fue validado por el administrador"
+    )
+    activo = models.BooleanField(
+        default=True, help_text="Indica si puede ingresar al sistema"
+    )
+    descripcion = models.TextField(blank=True, null=True)
+    foto = models.ImageField(upload_to="fotos_profesores/", blank=True, null=True)
 
     class Meta:
+        db_table = "profesor"
         indexes = [
             models.Index(fields=["rut"], name="idx_profesor_rut"),
         ]
@@ -141,7 +166,8 @@ class Profesor(models.Model):
             super().delete(*args, **kwargs)
 
     def set_password(self, raw_password):
-        """Encripta y guarda la contraseña"""
+        from django.contrib.auth.hashers import make_password
+
         self.password = make_password(raw_password)
         self.save()
 
@@ -157,6 +183,7 @@ class ProfesorMateria(models.Model):
     profesor = models.ForeignKey(Profesor, on_delete=models.CASCADE)
 
     class Meta:
+        db_table = "profesor_materia"
         unique_together = ("profesor", "materia")
         verbose_name = "Profesor-Materia"
         verbose_name_plural = "Profesores-Materias"
@@ -173,6 +200,7 @@ class Clase(models.Model):
     materia = models.ForeignKey(Materia, on_delete=models.CASCADE)
 
     class Meta:
+        db_table = "clase"
         indexes = [
             models.Index(fields=["profesor"], name="idx_clase_profesor"),
         ]
@@ -190,6 +218,7 @@ class HoraClase(models.Model):
     clase = models.ForeignKey(Clase, on_delete=models.CASCADE)
 
     class Meta:
+        db_table = "hora_clase"
         indexes = [
             models.Index(fields=["fecha", "inicio"], name="idx_fecha_inicio"),
         ]
@@ -207,6 +236,7 @@ class ReservaClase(models.Model):
     mensaje_alumno = models.TextField(blank=True, null=True)
 
     class Meta:
+        db_table = "reserva_clase"
         unique_together = ("hora_clase", "alumno")
         indexes = [
             models.Index(fields=["alumno"], name="idx_reserva_alumno"),
@@ -229,6 +259,9 @@ class MaterialClase(models.Model):
     descripcion = models.TextField(blank=True)
     fecha_subida = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        db_table = "material_clase"
+
     def __str__(self):
         return f"Material para {self.reserva}"
 
@@ -245,4 +278,47 @@ class EvaluacionClase(models.Model):
     fecha = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        db_table = "evaluacion_clase"
         unique_together = ("reserva", "evaluador")  # ✅ Impide duplicados por evaluador
+
+
+class Administrador(models.Model):
+    nombre = models.CharField(max_length=60)
+    apellido = models.CharField(max_length=60)
+    correo = models.EmailField(unique=True)
+    password = models.CharField(max_length=128)
+
+    class Meta:
+        db_table = "administrador"
+        verbose_name = "Administrador"
+        verbose_name_plural = "Administradores"
+
+    def __str__(self):
+        return f"{self.nombre} {self.apellido}"
+
+    def set_password(self, raw_password):
+        from django.contrib.auth.hashers import make_password
+
+        self.password = make_password(raw_password)
+        self.save()
+
+    def check_password(self, raw_password):
+        from django.contrib.auth.hashers import check_password
+
+        return check_password(raw_password, self.password)
+
+
+class CobroProfesor(models.Model):
+    profesor = models.ForeignKey(
+        Profesor, on_delete=models.CASCADE, related_name="cobros"
+    )
+    monto = models.DecimalField(max_digits=10, decimal_places=2)
+    fecha = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "cobro_profesor"  # ← Nombre fijo de la tabla
+        verbose_name = "Cobro de Profesor"
+        verbose_name_plural = "Cobros de Profesores"
+
+    def __str__(self):
+        return f"Cobro de {self.profesor.nombre} {self.profesor.apellido} - ${self.monto} el {self.fecha.strftime('%Y-%m-%d')}"

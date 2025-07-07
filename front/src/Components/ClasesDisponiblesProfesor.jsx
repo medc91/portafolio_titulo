@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
-import dayjs from "dayjs";
+import dayjs from "../utils/timezone";
 import ReservarClaseButton from "./BotonReservarClase";
 
 const BASE_URL = "http://localhost:8000";
@@ -18,8 +18,8 @@ const ClasesDisponiblesProfesor = ({ profesorId, alumnoId, actualizador }) => {
         console.log("Clases recibidas:", res.data);
 
         const ordenadas = res.data.sort((a, b) => {
-          const inicioA = dayjs(a.inicio);
-          const inicioB = dayjs(b.inicio);
+          const inicioA = dayjs.tz(a.inicio);
+          const inicioB = dayjs.tz(b.inicio);
           return inicioA.valueOf() - inicioB.valueOf();
         });
 
@@ -49,8 +49,9 @@ const ClasesDisponiblesProfesor = ({ profesorId, alumnoId, actualizador }) => {
       ) : (
         <ul className="space-y-6 max-h-[500px] overflow-y-auto">
           {clases.map((clase, index) => {
-            const inicio = dayjs(clase.inicio);
-            const fin = dayjs(clase.fin);
+            const inicio = dayjs.tz(clase.inicio);
+            const fin = dayjs.tz(clase.fin);
+
             return (
               <li
                 key={index}

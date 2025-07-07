@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
-import dayjs from "dayjs";
+import dayjs from "../utils/timezone";
 import BotonUnirse from "./BotonUnirse";
 import SubirMaterial from "./SubirMaterial";
 
@@ -50,12 +50,12 @@ const ClasesReservadasProfesor = ({ profesorId }) => {
               <div className="space-y-1 text-gray-800 text-sm font-medium">
                 <p>
                   🗓 <strong>Fecha:</strong>{" "}
-                  {dayjs(clase.fecha).format("DD/MM/YYYY")}
+                  {dayjs.tz(clase.fecha).format("DD/MM/YYYY")}
                 </p>
                 <p>
                   ⏰ <strong>Hora:</strong>{" "}
-                  {dayjs(clase.inicio).format("HH:mm")} -{" "}
-                  {dayjs(clase.fin).format("HH:mm")}
+                  {dayjs.tz(clase.inicio).format("HH:mm")} -{" "}
+                  {dayjs.tz(clase.fin).format("HH:mm")}
                 </p>
                 <p>
                   📘 <strong>Materia:</strong> {clase.materia}

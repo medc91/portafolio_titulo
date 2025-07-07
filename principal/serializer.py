@@ -81,9 +81,25 @@ class HoraClaseSerializer(serializers.ModelSerializer):
 
 
 class AlumnoDetalleSerializer(serializers.ModelSerializer):
+    foto = serializers.SerializerMethodField()
+
     class Meta:
         model = Alumno
-        fields = ["id", "nombre", "apellido", "correo", "rut", "dv"]
+        fields = [
+            "id",
+            "nombre",
+            "apellido",
+            "correo",
+            "rut",
+            "dv",
+            "descripcion",
+            "foto",
+        ]
+
+    def get_foto(self, obj):
+        if obj.foto:
+            return f"/media/{obj.foto.name}"
+        return None
 
 
 class AlumnoSerializer(serializers.ModelSerializer):
@@ -121,6 +137,7 @@ class AlumnoSerializer(serializers.ModelSerializer):
 
 class ProfesorSerializer(serializers.ModelSerializer):
     confirmar_password = serializers.CharField(write_only=True)
+    foto = serializers.SerializerMethodField()  # ✅ Nuevo campo
 
     class Meta:
         model = Profesor
@@ -133,22 +150,31 @@ class ProfesorSerializer(serializers.ModelSerializer):
             "password",
             "titulo",
             "confirmar_password",
+            "descripcion",
+            "foto",  # ✅ Asegúrate de incluirlo en los campos
         ]
         extra_kwargs = {"password": {"write_only": True}}
 
     def validate(self, data):
-        if data["password"] != data["confirmar_password"]:
-            raise serializers.ValidationError(
-                {"confirmar_password": "Las contraseñas no coinciden."}
-            )
+        if "password" in data or "confirmar_password" in data:
+            if data.get("password") != data.get("confirmar_password"):
+                raise serializers.ValidationError(
+                    {"confirmar_password": "Las contraseñas no coinciden."}
+                )
         return data
 
     def create(self, validated_data):
-        validated_data.pop("confirmar_password")  # No se guarda en la BD
+        validated_data.pop("confirmar_password")
         raw_password = validated_data.pop("password")
         profesor = Profesor(**validated_data)
         profesor.set_password(raw_password)
+        profesor.save()
         return profesor
+
+    def get_foto(self, obj):  # ✅ Método que devuelve la ruta correcta
+        if obj.foto:
+            return f"/media/{obj.foto.name}"
+        return None
 
 
 from rest_framework import serializers
@@ -248,3 +274,9 @@ class ReservaClaseAlumnoSerializer(serializers.ModelSerializer):
     def get_profesor(self, obj):
         p = obj.hora_clase.clase.profesor
         return f"{p.nombre} {p.apellido}"
+
+
+class FotoAlumnoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Alumno
+        fields = ["foto"]

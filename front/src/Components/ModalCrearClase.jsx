@@ -68,8 +68,8 @@ const ModalCrearClase = ({
 
           clases.push({
             fecha: inicio.format("YYYY-MM-DD"),
-            hora_inicio: inicio.utc().format("HH:mm"),
-            hora_fin: finClase.utc().format("HH:mm"),
+            hora_inicio: inicio.format("HH:mm"),
+            hora_fin: finClase.format("HH:mm"),
             monto: parseInt(monto),
             materia_id: parseInt(materiaId),
             nivel_id: parseInt(nivelId),

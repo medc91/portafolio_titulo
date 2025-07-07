@@ -6,8 +6,10 @@ from django.utils.timezone import now, localtime
 from django.http import JsonResponse
 from django.contrib.auth.hashers import make_password
 from rest_framework.views import APIView
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, parser_classes
 from rest_framework.response import Response
+from decimal import Decimal
+import bcrypt
 from rest_framework import status
 from django.core.mail import send_mail
 from .serializer import (
@@ -35,8 +37,14 @@ from .models import (
     Pago,
     MaterialClase,
     EvaluacionClase,
+    Administrador,
+    ProfesorMateria,
+    CobroProfesor,
 )
 from datetime import datetime
+from pytz import timezone
+from rest_framework.parsers import MultiPartParser
+import os
 
 
 # Diccionario temporal en memoria
@@ -187,13 +195,36 @@ def login_usuario(request):
     email = request.data.get("email", "").strip().lower()
     password = request.data.get("password")
 
-    print("Recibido:", email, password)
+    # 1. Buscar en administradores
+    try:
+        admin = Administrador.objects.get(correo=email)
+        if check_password(password, admin.password):
+            return Response(
+                {
+                    "tipo_usuario": "administrador",
+                    "id": admin.id,
+                    "nombre": admin.nombre,
+                    "email": admin.correo,
+                },
+                status=status.HTTP_200_OK,
+            )
+    except Administrador.DoesNotExist:
+        pass
 
-    # Buscar en profesores
+    # 2. Buscar en profesores
     try:
         profesor = Profesor.objects.get(email=email)
-        print("Profesor encontrado:", profesor.email)
+
+        if profesor.password.startswith("$2b$"):
+            if bcrypt.checkpw(password.encode(), profesor.password.encode()):
+                profesor.set_password(password)
+                profesor.save()
+            else:
+                return Response({"error": "Credenciales incorrectas."}, status=401)
+
         if check_password(password, profesor.password):
+            if not profesor.activo:
+                return Response({"error": "Cuenta bloqueada"}, status=403)
             return Response(
                 {
                     "tipo_usuario": "profesor",
@@ -204,13 +235,23 @@ def login_usuario(request):
                 status=status.HTTP_200_OK,
             )
     except Profesor.DoesNotExist:
-        print("No se encontró profesor con ese correo")
+        pass
 
-    # Buscar en alumnos
+    # 3. Buscar en alumnos
     try:
         alumno = Alumno.objects.get(correo=email)
-        print("Alumno encontrado:", alumno.correo)
+
+        # ✅ Soporte para contraseña bcrypt en alumnos
+        if alumno.password.startswith("$2b$"):
+            if bcrypt.checkpw(password.encode(), alumno.password.encode()):
+                alumno.set_password(password)
+                alumno.save()
+            else:
+                return Response({"error": "Credenciales incorrectas."}, status=401)
+
         if check_password(password, alumno.password):
+            if not alumno.activo:
+                return Response({"error": "Cuenta bloqueada"}, status=403)
             return Response(
                 {
                     "tipo_usuario": "alumno",
@@ -221,14 +262,10 @@ def login_usuario(request):
                 status=status.HTTP_200_OK,
             )
     except Alumno.DoesNotExist:
-        print("No se encontró alumno con ese correo")
+        pass
 
-    return Response(
-        {"error": "Credenciales inválidas"}, status=status.HTTP_401_UNAUTHORIZED
-    )
-
-
-from .models import Profesor, ProfesorMateria, EvaluacionClase
+    # ❌ Si no coincide ningún usuario
+    return Response({"error": "Credenciales incorrectas."}, status=401)
 
 
 @api_view(["GET"])
@@ -236,37 +273,41 @@ def perfil_profesor(request, profesor_id):
     try:
         profesor = Profesor.objects.get(id=profesor_id)
 
-        # Valoración promedio
-        valoraciones = EvaluacionClase.objects.filter(
-            reserva__hora_clase__clase__profesor_id=profesor_id, evaluador="alumno"
-        ).values_list("puntuacion", flat=True)
-
-        valoracion = sum(valoraciones) / len(valoraciones) if valoraciones else 0
-
-        # Materias desde tabla intermedia
+        # Obtener materias y comentarios
         materias = ProfesorMateria.objects.filter(profesor=profesor).select_related(
             "materia"
         )
         lista_materias = [pm.materia.nombre_materia for pm in materias]
 
-        # Comentarios de alumnos
         comentarios = EvaluacionClase.objects.filter(
             reserva__hora_clase__clase__profesor=profesor, evaluador="alumno"
         ).values("comentario", "puntuacion")
 
-        return Response(
+        # Valoración promedio
+        valoraciones_qs = EvaluacionClase.objects.filter(
+            reserva__hora_clase__clase__profesor_id=profesor_id, evaluador="alumno"
+        ).values_list("puntuacion", flat=True)
+
+        valoraciones = list(valoraciones_qs)
+        valoracion = sum(valoraciones) / len(valoraciones) if valoraciones else 0
+
+        # Serializar y añadir campos adicionales manualmente
+        data = ProfesorSerializer(profesor).data
+        data.update(
             {
-                "nombre": profesor.nombre,
-                "apellido": profesor.apellido,
-                "correo": profesor.email,
                 "valoracion": round(valoracion, 2),
                 "materias": lista_materias,
                 "comentarios": list(comentarios),
             }
         )
 
+        return Response(data)
+
     except Profesor.DoesNotExist:
         return Response({"error": "Profesor no encontrado"}, status=404)
+    except Exception as e:
+        print("⚠️ Error interno en perfil_profesor:", str(e))
+        return Response({"error": "Error interno del servidor"}, status=500)
 
 
 from django.utils.timezone import make_aware
@@ -279,6 +320,16 @@ def crear_clase(request):
 
         data = request.data
         profesor = Profesor.objects.get(id=data["profesor_id"])
+
+        # 🚫 Validación: no permitir crear clases si no está validado
+        if not profesor.validado:
+            return Response(
+                {
+                    "error": "Tu cuenta aún no ha sido validada por el administrador. No puedes crear clases."
+                },
+                status=403,
+            )
+
         materia = Materia.objects.get(id=data["materia_id"])
         nivel = Nivel.objects.get(id=data["nivel_id"])
 
@@ -290,12 +341,16 @@ def crear_clase(request):
             materia=materia,
         )
 
-        # Convertir a timezone-aware
-        inicio = make_aware(datetime.fromisoformat(data["inicio"]))
-        fin = make_aware(datetime.fromisoformat(data["fin"]))
+        # Zona horaria Chile
+        chile_tz = timezone("America/Santiago")
+        inicio = chile_tz.localize(datetime.fromisoformat(data["inicio"]))
+        fin = chile_tz.localize(datetime.fromisoformat(data["fin"]))
 
         HoraClase.objects.create(
-            clase=clase, fecha=data["fecha"], inicio=inicio, fin=fin
+            clase=clase,
+            fecha=data["fecha"],
+            inicio=inicio,
+            fin=fin,
         )
 
         return Response(
@@ -458,18 +513,31 @@ def crear_clases_multiples(request):
         if not clases:
             return Response({"error": "No se recibieron clases"}, status=400)
 
+        chile_tz = timezone("America/Santiago")
+
         for clase_data in clases:
             profesor = Profesor.objects.get(id=clase_data["profesor_id"])
+
+            # 🚫 Validación: debe estar validado
+            if not profesor.validado:
+                return Response(
+                    {
+                        "error": f"El profesor {profesor.nombre} {profesor.apellido} aún no está validado. No puede crear clases."
+                    },
+                    status=403,
+                )
+
             materia = Materia.objects.get(id=clase_data["materia_id"])
             nivel = Nivel.objects.get(id=clase_data["nivel_id"])
 
-            inicio_dt = make_aware(
+            # Parseo y localización con horario chileno
+            inicio_dt = chile_tz.localize(
                 datetime.strptime(
                     f"{clase_data['fecha']} {clase_data['hora_inicio']}",
                     "%Y-%m-%d %H:%M",
                 )
             )
-            fin_dt = make_aware(
+            fin_dt = chile_tz.localize(
                 datetime.strptime(
                     f"{clase_data['fecha']} {clase_data['hora_fin']}", "%Y-%m-%d %H:%M"
                 )
@@ -792,29 +860,373 @@ from django.utils.timezone import localtime
 
 @api_view(["GET"])
 def pagos_profesor(request, profesor_id):
-    reservas = ReservaClase.objects.filter(
-        hora_clase__clase__profesor_id=profesor_id, pago__estado="COMPLETADO"
-    ).select_related("pago", "alumno", "hora_clase")
+    try:
+        profesor = Profesor.objects.get(id=profesor_id)
 
-    pagos_data = []
-    total_mes = 0
+        # Reservas asociadas a clases del profesor
+        reservas = ReservaClase.objects.filter(hora_clase__clase__profesor=profesor)
 
-    for reserva in reservas:
-        pago = reserva.pago
-        fecha_pago_local = localtime(pago.fecha_pago)
-        pagos_data.append(
+        # Filtrar pagos COMPLETADOS
+        pagos_completados = Pago.objects.filter(
+            id__in=reservas.values_list("pago_id", flat=True), estado="COMPLETADO"
+        )
+
+        pagos_data = []
+        total_pagado = 0.0
+
+        for pago in pagos_completados:
+            try:
+                reserva = ReservaClase.objects.get(pago=pago)
+                alumno = reserva.alumno
+                pagos_data.append(
+                    {
+                        "fecha_pago": pago.fecha_pago.strftime("%Y-%m-%d %H:%M"),
+                        "monto": float(pago.monto),
+                        "alumno": f"{alumno.nombre} {alumno.apellido}",
+                    }
+                )
+                total_pagado += float(pago.monto)
+            except ReservaClase.DoesNotExist:
+                continue
+
+        # Total ya cobrado
+        cobros = CobroProfesor.objects.filter(profesor=profesor)
+        total_cobrado = sum(float(c.monto) for c in cobros)
+
+        historial_cobros = [
             {
-                "fecha_pago": fecha_pago_local.strftime("%d/%m/%Y"),
-                "alumno": str(reserva.alumno),
-                "monto": pago.monto,
+                "monto": float(c.monto),
+                "fecha": c.fecha.strftime("%Y-%m-%d %H:%M"),
+            }
+            for c in cobros.order_by("-fecha")
+        ]
+
+        total_disponible = round(total_pagado - total_cobrado, 2)
+
+        return Response(
+            {
+                "pagos": pagos_data,
+                "total_disponible": total_disponible,
+                "historial_cobros": historial_cobros,
             }
         )
 
-        # Suma solo si es del mes actual
-        if (
-            fecha_pago_local.month == localtime().month
-            and fecha_pago_local.year == localtime().year
-        ):
-            total_mes += pago.monto
+    except Profesor.DoesNotExist:
+        return Response({"error": "Profesor no encontrado"}, status=404)
 
-    return Response({"pagos": pagos_data, "total_mes": total_mes})
+
+@api_view(["GET"])
+def listar_profesores_admin(request):
+    profesores = Profesor.objects.all()
+    data = [
+        {
+            "id": p.id,
+            "nombre": f"{p.nombre} {p.apellido}",
+            "correo": p.email,
+            "activo": p.activo,
+            "validado": p.validado,
+            "titulo_url": p.titulo.url if p.titulo else None,
+        }
+        for p in profesores
+    ]
+    return Response(data)
+
+
+@api_view(["POST"])
+def validar_profesor(request, profesor_id):
+    try:
+        profesor = Profesor.objects.get(id=profesor_id)
+        profesor.validado = True
+        profesor.save()
+        return Response({"mensaje": "Título validado correctamente"})
+    except Profesor.DoesNotExist:
+        return Response({"error": "Profesor no encontrado"}, status=404)
+
+
+@api_view(["POST"])
+def bloquear_profesor(request, profesor_id):
+    try:
+        profesor = Profesor.objects.get(id=profesor_id)
+        profesor.activo = False
+        profesor.save()
+        return Response({"mensaje": "Profesor bloqueado correctamente"})
+    except Profesor.DoesNotExist:
+        return Response({"error": "Profesor no encontrado"}, status=404)
+
+
+@api_view(["POST"])
+def activar_profesor(request, profesor_id):
+    try:
+        profesor = Profesor.objects.get(id=profesor_id)
+        profesor.activo = True
+        profesor.save()
+        return Response({"mensaje": "Profesor activado correctamente"})
+    except Profesor.DoesNotExist:
+        return Response({"error": "Profesor no encontrado"}, status=404)
+
+
+@api_view(["GET"])
+def listar_alumnos_admin(request):
+    alumnos = Alumno.objects.all()
+    data = [
+        {
+            "id": a.id,
+            "nombre": f"{a.nombre} {a.apellido}",
+            "correo": a.correo,
+            "activo": a.activo,
+        }
+        for a in alumnos
+    ]
+    return Response(data)
+
+
+@api_view(["POST"])
+def bloquear_alumno(request, alumno_id):
+    try:
+        alumno = Alumno.objects.get(id=alumno_id)
+        alumno.activo = False
+        alumno.save()
+        return Response({"mensaje": "Alumno bloqueado correctamente"})
+    except Alumno.DoesNotExist:
+        return Response({"error": "Alumno no encontrado"}, status=404)
+
+
+@api_view(["POST"])
+def activar_alumno(request, alumno_id):
+    try:
+        alumno = Alumno.objects.get(id=alumno_id)
+        alumno.activo = True
+        alumno.save()
+        return Response({"mensaje": "Alumno activado correctamente"})
+    except Alumno.DoesNotExist:
+        return Response({"error": "Alumno no encontrado"}, status=404)
+
+
+@api_view(["POST"])
+def rechazar_titulo_profesor(request, profesor_id):
+    try:
+        profesor = Profesor.objects.get(id=profesor_id)
+        profesor.validado = False
+        profesor.save()
+
+        # Enviar correo al profesor
+        send_mail(
+            subject="Rechazo de título académico - Aula Global",
+            message=(
+                f"Estimado/a {profesor.nombre},\n\n"
+                "Tu título ha sido revisado por el administrador de Aula Global y fue rechazado. "
+                "Por favor, comunícate con tu institución académica para resolver este problema.\n\n"
+                "No podrás crear clases hasta que el título sea validado correctamente.\n\n"
+                "Gracias por tu comprensión.\n\nEquipo Aula Global."
+            ),
+            from_email="portafolio.titulo2025@gmail.com",
+            recipient_list=[profesor.email],
+            fail_silently=False,
+        )
+
+        return Response({"mensaje": "Título rechazado y correo enviado correctamente."})
+    except Profesor.DoesNotExist:
+        return Response({"error": "Profesor no encontrado."}, status=404)
+
+
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from django.core.mail import EmailMultiAlternatives
+from django.template.loader import render_to_string
+from .models import Profesor  # Asegúrate de que la importación sea correcta
+
+
+@api_view(["POST"])
+def validar_titulo_profesor(request, profesor_id):
+    try:
+        profesor = Profesor.objects.get(id=profesor_id)
+        profesor.validado = True
+        profesor.save()
+
+        subject = "🎓 ¡Tu título ha sido validado en Aula Global!"
+        from_email = "portafolio.titulo2025@gmail.com"
+        to_email = [profesor.email]
+
+        html_content = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; color: #333;">
+            <h2 style="color:#10B981;">🎉 ¡Felicidades, {profesor.nombre}!</h2>
+            <p>Hemos revisado y validado tu título académico con éxito.</p>
+            <p>A partir de ahora puedes comenzar a <strong>crear clases</strong> y conectar con estudiantes que buscan tus conocimientos.</p>
+            <p>💡 Recuerda completar tu perfil con una buena descripción y foto para que los alumnos te conozcan mejor.</p>
+            <hr style="margin:20px 0;" />
+            <p style="font-size: 14px; color: #555;">
+                🌐 Ingresa a tu cuenta y explora todas las herramientas que hemos preparado para ti.<br><br>
+                Gracias por ser parte de <strong>Aula Global</strong> 🙌<br>
+                — El equipo de Aula Global
+            </p>
+        </body>
+        </html>
+        """
+
+        msg = EmailMultiAlternatives(subject, "", from_email, to_email)
+        msg.attach_alternative(html_content, "text/html")
+        msg.send()
+
+        return Response({"mensaje": "Título validado y correo enviado correctamente."})
+    except Profesor.DoesNotExist:
+        return Response({"error": "Profesor no encontrado."}, status=404)
+
+
+@api_view(["PUT"])
+def actualizar_descripcion_alumno(request, alumno_id):
+    try:
+        alumno = Alumno.objects.get(id=alumno_id)
+    except Alumno.DoesNotExist:
+        return Response({"error": "Alumno no encontrado"}, status=404)
+
+    serializer = AlumnoDetalleSerializer(alumno, data=request.data, partial=True)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data)
+    return Response(serializer.errors, status=400)
+
+
+@api_view(["PUT"])
+def actualizar_descripcion_profesor(request, profesor_id):
+    try:
+        profesor = Profesor.objects.get(id=profesor_id)
+    except Profesor.DoesNotExist:
+        return Response(
+            {"error": "Profesor no encontrado"}, status=status.HTTP_404_NOT_FOUND
+        )
+
+    serializer = ProfesorSerializer(profesor, data=request.data, partial=True)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(["POST"])
+@parser_classes([MultiPartParser])
+def subir_foto_alumno(request, alumno_id):
+    try:
+        alumno = Alumno.objects.get(id=alumno_id)
+
+        if "foto" not in request.FILES:
+            return Response({"error": "No se recibió ninguna imagen"}, status=400)
+
+        # Eliminar la foto anterior si existe
+        if alumno.foto and os.path.isfile(alumno.foto.path):
+            os.remove(alumno.foto.path)
+
+        # Guardar la nueva foto
+        alumno.foto = request.FILES["foto"]
+        alumno.save()
+
+        return Response({"foto_url": alumno.foto.url}, status=200)
+
+    except Alumno.DoesNotExist:
+        return Response({"error": "Alumno no encontrado"}, status=404)
+
+
+@api_view(["POST"])
+@parser_classes([MultiPartParser])
+def subir_foto_profesor(request, profesor_id):
+    try:
+        profesor = Profesor.objects.get(id=profesor_id)
+
+        if "foto" in request.FILES:
+            # Eliminar imagen anterior si existe
+            if profesor.foto and os.path.isfile(profesor.foto.path):
+                os.remove(profesor.foto.path)
+
+            # Guardar nueva imagen
+            profesor.foto = request.FILES["foto"]
+            profesor.save()
+
+            return Response({"foto_url": profesor.foto.url}, status=200)
+        return Response({"error": "No se recibió ninguna imagen"}, status=400)
+
+    except Profesor.DoesNotExist:
+        return Response({"error": "Profesor no encontrado"}, status=404)
+
+
+@api_view(["POST"])
+def realizar_cobro(request, profesor_id):
+    try:
+        profesor = Profesor.objects.get(id=profesor_id)
+
+        # Calcular total disponible
+        pagos = Pago.objects.filter(
+            reserva__hora_clase__clase__profesor=profesor, estado="COMPLETADO"
+        )
+        total_pagado = sum(p.monto for p in pagos)
+
+        cobros = CobroProfesor.objects.filter(profesor=profesor)
+        total_cobrado = sum(c.monto for c in cobros)
+
+        total_disponible = total_pagado - total_cobrado
+
+        if total_disponible <= 0:
+            return Response(
+                {"error": "No hay fondos disponibles para retirar."}, status=400
+            )
+
+        # Crear nuevo cobro
+        cobro = CobroProfesor.objects.create(profesor=profesor, monto=total_disponible)
+
+        return Response(
+            {
+                "mensaje": "Cobro realizado exitosamente",
+                "monto_retirado": cobro.monto,
+                "fecha": cobro.fecha.strftime("%Y-%m-%d %H:%M"),
+            }
+        )
+
+    except Profesor.DoesNotExist:
+        return Response({"error": "Profesor no encontrado"}, status=404)
+
+
+@api_view(["POST"])
+def cobrar_profesor(request, profesor_id):
+    try:
+        profesor = Profesor.objects.get(id=profesor_id)
+
+        # Buscar todas las reservas del profesor
+        reservas = ReservaClase.objects.filter(hora_clase__clase__profesor=profesor)
+
+        # Pagos COMPLETADOS relacionados con esas reservas
+        pagos_completados = Pago.objects.filter(
+            reservaclase__in=reservas, estado="COMPLETADO"
+        )
+
+        # Convertir montos a Decimal para asegurar precisión
+        total_ganado = sum(Decimal(str(p.monto)) for p in pagos_completados)
+
+        total_cobrado = sum(
+            c.monto for c in CobroProfesor.objects.filter(profesor=profesor)
+        )
+
+        total_disponible = total_ganado - total_cobrado
+
+        if total_disponible <= 0:
+            return Response(
+                {"mensaje": "No hay monto disponible para cobrar."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Registrar nuevo cobro
+        cobro = CobroProfesor.objects.create(
+            profesor=profesor,
+            monto=total_disponible,
+        )
+
+        return Response(
+            {
+                "mensaje": "Cobro registrado exitosamente.",
+                "monto_retirado": float(cobro.monto),
+                "fecha": localtime(cobro.fecha).strftime("%Y-%m-%d %H:%M"),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    except Profesor.DoesNotExist:
+        return Response({"error": "Profesor no encontrado"}, status=404)

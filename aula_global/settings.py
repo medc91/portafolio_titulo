@@ -81,15 +81,15 @@ WSGI_APPLICATION = "aula_global.wsgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",
-        "NAME": "aula_global",
-        "USER": "root",
-        "PASSWORD": "root",
-        "HOST": "localhost",
-        "PORT": "3306",
+        "NAME": "railway",  # Nombre de la BD desde Railway
+        "USER": "django_user",  # Usuario Railway
+        "PASSWORD": "Django123!",  # Tu contraseña real
+        "HOST": "ballast.proxy.rlwy.net",  # Host interno de Railway
+        "PORT": "12989",  # Puerto por defecto
         "OPTIONS": {
             "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",
-            "charset": "utf8mb4",  # Para soporte completo de Unicode
-            "isolation_level": "read committed",  # Buen nivel por defecto
+            "charset": "utf8mb4",
+            "isolation_level": "read committed",
         },
         "TEST": {
             "CHARSET": "utf8mb4",

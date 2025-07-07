@@ -66,7 +66,7 @@ const PerfilProfesor = () => {
           <div className="grid md:grid-cols-2 gap-8">
             {/* Perfil del profesor a la izquierda */}
             <div>
-              <PerfilProfesorInfo profesor={profesor} />
+              <PerfilProfesorInfo profesor={profesor} profesorId={profesorId} />
             </div>
 
             {/* Clases reservadas a la derecha */}

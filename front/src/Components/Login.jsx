@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import axios from "axios";
 import { useNavigate, Link } from "react-router-dom";
+import Swal from "sweetalert2"; // 👈 importa SweetAlert
 import logo from "../assets/images/logo.png"; // Asegúrate de que esta ruta es correcta
 
 const Login = () => {
@@ -20,7 +21,7 @@ const Login = () => {
         password,
       });
 
-      const { tipo_usuario, id } = res.data;
+      const { tipo_usuario, id, nombre } = res.data;
 
       if (window.OneSignalDeferred) {
         window.OneSignalDeferred.push(async function (OneSignal) {
@@ -36,9 +37,51 @@ const Login = () => {
       }
 
       if (tipo_usuario === "profesor") {
-        navigate(`/profesor/${id}`);
+        if (!localStorage.getItem("bienvenidaProfesor")) {
+          localStorage.setItem("bienvenidaProfesor", "true");
+          Swal.fire({
+            icon: "info",
+            title: `¡Bienvenido a Aula Global, ${nombre || "Profesor"}! 👋`,
+            html: `
+              <p>¡Es hora de enseñar y compartir tu conocimiento!</p>
+              <br/>
+              <p>
+                🎓 Tu título está siendo revisado por nuestro equipo. El proceso no tomará más de <b>24 horas hábiles</b> y mientras tanto, <b>podrás explorar todas las funcionalidades</b> de Aula Global, excepto crear clases.
+              </p>
+              <br/>
+              <p>
+                ✍️ Te invitamos a <b>actualizar tu perfil</b> y contarnos sobre ti para que tus futuros estudiantes puedan conocerte mejor.
+              </p>
+            `,
+            confirmButtonText: "¡Entendido!",
+            confirmButtonColor: "#10B981",
+          }).then(() => {
+            navigate(`/profesor/${id}`);
+          });
+        } else {
+          navigate(`/profesor/${id}`);
+        }
       } else if (tipo_usuario === "alumno") {
-        navigate(`/alumno/${id}`);
+        if (!localStorage.getItem("bienvenidaAlumno")) {
+          localStorage.setItem("bienvenidaAlumno", "true");
+          Swal.fire({
+            icon: "success",
+            title: `¡Hola ${nombre || "Estudiante"}! 👋`,
+            html: `
+              <p>Bienvenido a Aula Global, el lugar ideal para encontrar a tu profesor ideal.</p>
+              <br/>
+              <p>🧑‍🏫 Ya puedes comenzar a <b>buscar clases</b> y prepararte para aprender lo que necesitas.</p>
+            `,
+            confirmButtonText: "¡Vamos allá!",
+            confirmButtonColor: "#10B981",
+          }).then(() => {
+            navigate(`/alumno/${id}`);
+          });
+        } else {
+          navigate(`/alumno/${id}`);
+        }
+      } else if (tipo_usuario === "administrador") {
+        navigate(`/admin-dashboard`);
       } else {
         setError("Tipo de usuario no reconocido.");
       }

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
-import dayjs from "dayjs";
+import dayjs from "../utils/timezone";
 import NavbarProfesor from "./NavbarProfesor";
 
 const BASE_URL = "http://localhost:8000";
@@ -40,12 +40,12 @@ const HistorialClasesProfesor = ({ profesorId }) => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-gray-700">
                   <p>
                     <strong>📅 Fecha:</strong>{" "}
-                    {dayjs(clase.inicio).format("DD/MM/YYYY")}
+                    {dayjs.tz(clase.inicio).format("DD/MM/YYYY")}
                   </p>
                   <p>
                     <strong>🕒 Hora:</strong>{" "}
-                    {dayjs(clase.inicio).format("HH:mm")} -{" "}
-                    {dayjs(clase.fin).format("HH:mm")}
+                    {dayjs.tz(clase.inicio).format("HH:mm")} -{" "}
+                    {dayjs.tz(clase.fin).format("HH:mm")}
                   </p>
                   <p>
                     <strong>📘 Materia:</strong> {clase.materia}

@@ -2,6 +2,8 @@ import "./App.css";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { useParams, useLocation } from "react-router-dom";
 import { useEffect } from "react";
+import { ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 import RegistroAlumno from "./Components/RegistroAlumno";
 import RegistroProfesor from "./Components/RegistroProfesor";
 import Login from "./Components/Login";
@@ -19,6 +21,7 @@ import PagosProfesor from "./Components/PagosProfesor";
 import AOS from "aos";
 import "aos/dist/aos.css";
 import HomePage from "./Components/HomePage";
+import AdminDashboard from "./Components/AdminDashboard";
 
 const PerfilProfesorWrapper = () => {
   const { id } = useParams(); // 👈 obtenemos el id desde la URL
@@ -60,6 +63,7 @@ function App() {
 
   return (
     <>
+      <ToastContainer position="top-center" />
       <OneSignalInitializer /> {/* 👈 se ejecuta al inicio */}
       <Router>
         <Routes>
@@ -92,6 +96,7 @@ function App() {
             path="/profesor/:id/pagos"
             element={<PagosProfesorWrapper />}
           />
+          <Route path="/admin-dashboard" element={<AdminDashboard />} />
         </Routes>
       </Router>
     </>

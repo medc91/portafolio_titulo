@@ -36,7 +36,7 @@ const BotonUnirse = ({
 
       {modalJitsi && (
         <JitsiModal
-          roomName="AulaGlobalSalaUnica" // ← nombre fijo para pruebas
+          roomName={`Tutoria${videollamadaId}`}
           userDisplayName={nombreUsuario || "Usuario"}
           onClose={cerrarLlamada}
         />

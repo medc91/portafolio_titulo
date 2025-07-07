@@ -11,6 +11,7 @@ from .models import (
     ReservaClase,
     MaterialClase,
     EvaluacionClase,
+    Administrador,
 )
 
 # Registra todos tus modelos aquí
@@ -25,3 +26,4 @@ admin.site.register(HoraClase)
 admin.site.register(ReservaClase)
 admin.site.register(MaterialClase)
 admin.site.register(EvaluacionClase)
+admin.site.register(Administrador)
